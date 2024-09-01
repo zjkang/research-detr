@@ -1,0 +1,35 @@
+execute
+  cedet_coco_res101.sh
+  main.py
+  opts.py
+  demo.py
+  test.py
+
+model
+  model.py -- all models
+    _model_factory = {
+        'res': [get_pose_net, get_houghnet_net],
+        'resdcn': [get_pose_net_dcn, get_houghnet_dcn_net],
+        'hourglass': [get_large_hourglass_net, get_houghnet_large_hourglass_net],
+        'dla': [get_dla_dcn, get_dlahough_dcn]
+    }
+
+  hough_module.py
+  houghnet_resnet.py
+
+trainer
+  base_trainer.py
+  ctdet.py
+detector
+  base_detector.py
+  ctdet.py
+  decode.py
+
+data
+  coco.py
+  ctdet.py
+    -- CTDetDataset: generate real intput batch
+       idx: index of the center position
+       ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh}
+
+

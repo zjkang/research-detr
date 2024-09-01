@@ -24,6 +24,7 @@ def main(opt):
   torch.manual_seed(opt.seed)
   torch.backends.cudnn.benchmark = not opt.not_cuda_benchmark and not opt.test
   # torch.backends.cudnn.enabled = False
+  # zk: 更新 opt 对象的数据信息和头部配置（heads）以适应数据集和任务需求
   Dataset = get_dataset(opt.dataset, opt.task)
   opt = opts().update_dataset_info_and_set_heads(opt, Dataset)
   print(opt)
@@ -32,7 +33,7 @@ def main(opt):
 
   os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus_str
   opt.device = torch.device('cuda' if opt.gpus[0] >= 0 else 'cpu')
-  
+
   print('Creating model...')
   model = create_model(opt.arch, opt.heads, opt.head_conv, opt.region_num,
                        opt.vote_field_size)

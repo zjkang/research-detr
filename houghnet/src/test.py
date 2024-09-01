@@ -28,7 +28,7 @@ class PrefetchDataset(torch.utils.data.Dataset):
     self.img_dir = dataset.img_dir
     self.pre_process_func = pre_process_func
     self.opt = opt
-  
+
   def __getitem__(self, index):
     img_id = self.images[index]
     img_info = self.load_image_func(ids=[img_id])[0]
@@ -54,13 +54,13 @@ def prefetch_test(opt):
   print(opt)
   Logger(opt)
   Detector = detector_factory[opt.task]
-  
+
   split = 'val' if not opt.trainval else 'test'
   dataset = Dataset(opt, split)
   detector = Detector(opt)
-  
+
   data_loader = torch.utils.data.DataLoader(
-    PrefetchDataset(opt, dataset, detector.pre_process), 
+    PrefetchDataset(opt, dataset, detector.pre_process),
     batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
 
   results = {}
@@ -91,7 +91,7 @@ def test(opt):
   print(opt)
   Logger(opt)
   Detector = detector_factory[opt.task]
-  
+
   split = 'val' if not opt.trainval else 'test'
   dataset = Dataset(opt, split)
   detector = Detector(opt)
@@ -110,7 +110,7 @@ def test(opt):
       ret = detector.run(img_path, img_info['calib'])
     else:
       ret = detector.run(img_path)
-    
+
     results[img_id] = ret['results']
 
     Bar.suffix = '[{0}/{1}]|Tot: {total:} |ETA: {eta:} '.format(

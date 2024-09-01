@@ -101,6 +101,7 @@ class COCO(data.Dataset):
           bbox[2] -= bbox[0]
           bbox[3] -= bbox[1]
           score = bbox[4]
+          # bbox: 边界框坐标（转换为宽和高）
           bbox_out  = list(map(self._to_float, bbox[0:4]))
 
           detection = {

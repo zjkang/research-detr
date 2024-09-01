@@ -17,18 +17,27 @@ from .base_trainer import BaseTrainer
 class CtdetLoss(torch.nn.Module):
   def __init__(self, opt):
     super(CtdetLoss, self).__init__()
+    # 主损失函数，用于计算热图的损失。如果 opt.mse_loss 为 True，使用均方误差（MSE）损失，否则使用自定义的 FocalLoss
     self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
+    # 用于计算边界框回归损失
     self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else \
               RegLoss() if opt.reg_loss == 'sl1' else None
+    # 用于计算边界框宽高（wh）的损失
     self.crit_wh = torch.nn.L1Loss(reduction='sum') if opt.dense_wh else \
               NormRegL1Loss() if opt.norm_wh else \
               RegWeightedL1Loss() if opt.cat_spec_wh else self.crit_reg
+    # !!!类的损失呢!!!
     self.opt = opt
 
   def forward(self, outputs, batch):
+    # outputs: 一个包含多个尺度（或堆栈）的输出列表
+    # batch: 真实标签数据的字典
     opt = self.opt
+    # hm_loss（热图损失）、wh_loss（宽高损失）和 off_loss（偏移量损失）
     hm_loss, wh_loss, off_loss = 0, 0, 0
+    # restnet uses only 1 stack
     for s in range(opt.num_stacks):
+      # 注意outputs是多尺度？
       output = outputs[s]
       if not opt.mse_loss:
         output['hm'] = _sigmoid(output['hm'])
@@ -37,13 +46,13 @@ class CtdetLoss(torch.nn.Module):
         output['hm'] = batch['hm']
       if opt.eval_oracle_wh:
         output['wh'] = torch.from_numpy(gen_oracle_map(
-          batch['wh'].detach().cpu().numpy(), 
-          batch['ind'].detach().cpu().numpy(), 
+          batch['wh'].detach().cpu().numpy(),
+          batch['ind'].detach().cpu().numpy(),
           output['wh'].shape[3], output['wh'].shape[2])).to(opt.device)
       if opt.eval_oracle_offset:
         output['reg'] = torch.from_numpy(gen_oracle_map(
-          batch['reg'].detach().cpu().numpy(), 
-          batch['ind'].detach().cpu().numpy(), 
+          batch['reg'].detach().cpu().numpy(),
+          batch['ind'].detach().cpu().numpy(),
           output['reg'].shape[3], output['reg'].shape[2])).to(opt.device)
 
       hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
@@ -52,7 +61,7 @@ class CtdetLoss(torch.nn.Module):
           mask_weight = batch['dense_wh_mask'].sum() + 1e-4
           wh_loss += (
             self.crit_wh(output['wh'] * batch['dense_wh_mask'],
-            batch['dense_wh'] * batch['dense_wh_mask']) / 
+            batch['dense_wh'] * batch['dense_wh_mask']) /
             mask_weight) / opt.num_stacks
         elif opt.cat_spec_wh:
           wh_loss += self.crit_wh(
@@ -62,11 +71,11 @@ class CtdetLoss(torch.nn.Module):
           wh_loss += self.crit_reg(
             output['wh'], batch['reg_mask'],
             batch['ind'], batch['wh']) / opt.num_stacks
-      
+
       if opt.reg_offset and opt.off_weight > 0:
         off_loss += self.crit_reg(output['reg'], batch['reg_mask'],
                              batch['ind'], batch['reg']) / opt.num_stacks
-        
+
     loss = opt.hm_weight * hm_loss + opt.wh_weight * wh_loss + \
            opt.off_weight * off_loss
     loss_stats = {'loss': loss, 'hm_loss': hm_loss,
@@ -76,7 +85,7 @@ class CtdetLoss(torch.nn.Module):
 class CtdetTrainer(BaseTrainer):
   def __init__(self, opt, model, optimizer=None):
     super(CtdetTrainer, self).__init__(opt, model, optimizer=optimizer)
-  
+
   def _get_losses(self, opt):
     loss_states = ['loss', 'hm_loss', 'wh_loss', 'off_loss']
     loss = CtdetLoss(opt)

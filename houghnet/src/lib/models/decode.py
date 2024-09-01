@@ -464,6 +464,7 @@ def ddd_decode(heat, rot, depth, dim, wh=None, reg=None, K=40):
       
     return detections
 
+# 将网络的输出解码为具体的目标检测结果，主要涉及边界框的生成和类别的判定
 def ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
     batch, cat, height, width = heat.size()
 
@@ -489,6 +490,7 @@ def ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
       wh = wh.view(batch, K, 2)
     clses  = clses.view(batch, K, 1).float()
     scores = scores.view(batch, K, 1)
+    # 组合检测结果 (detections)
     bboxes = torch.cat([xs - wh[..., 0:1] / 2, 
                         ys - wh[..., 1:2] / 2,
                         xs + wh[..., 0:1] / 2, 

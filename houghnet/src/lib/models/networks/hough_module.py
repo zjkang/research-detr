@@ -49,13 +49,13 @@ class Hough(nn.Module):
             start_y -=1
             stop_y -=1
 
-        # (vote_field_size,vote_field_size,R) 
-        # -> (R,vote_field_size,vote_field_size) 
+        # (vote_field_size,vote_field_size,R)
+        # -> (R,vote_field_size,vote_field_size)
         # -> (region_num, 1, vote_field_size, vote_field_size)
         deconv_filters = weights[start_x:stop_x, start_y:stop_y,:].permute(2,0,1).view(self.region_num, 1,
 
                                                                      self.vote_field_size, self.vote_field_size)
-        # (self.num_classes * region_num, 1, vote_field_size, vote_field_size)
+        # W shape: (self.num_classes * region_num, 1, vote_field_size, vote_field_size)
         W = nn.Parameter(deconv_filters.repeat(self.num_classes, 1, 1, 1))
         W.requires_grad = False
 
@@ -73,6 +73,7 @@ class Hough(nn.Module):
             bias=False)
 
         with torch.no_grad():
+            # deconv_kernel.weight shape the same is W
             deconv_kernel.weight = W
 
         layers.append(deconv_kernel)
@@ -122,6 +123,7 @@ class Hough(nn.Module):
 
         return logmap_onehot
 
+    # voting_map: h*w*r*c
     def forward(self, voting_map, targets=None):
 
         if self.model_v1:

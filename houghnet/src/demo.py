@@ -20,6 +20,7 @@ def demo(opt):
   Detector = detector_factory[opt.task]
   detector = Detector(opt)
 
+  # real-time detection
   if opt.demo == 'webcam' or \
     opt.demo[opt.demo.rfind('.') + 1:].lower() in video_ext:
     cam = cv2.VideoCapture(0 if opt.demo == 'webcam' else opt.demo)

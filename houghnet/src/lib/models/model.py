@@ -21,6 +21,16 @@ _model_factory = {
 }
 
 
+# opt.arch, opt.heads, opt.head_conv, opt.region_num, opt.vote_field_siz
+# e.g.,
+# arch: res_101
+# num_layers=101, arch=res, get_model=get_houghnet_net
+# heads={hm: # of class * # of region = 80 * 17,
+#        wh: 2 * 80,
+#        voting_head: {hm},
+#        reg: 2 (center)},
+# head_conv=64 for resnet,
+# region_num=17,vote_field_size=65
 def create_model(arch, heads, head_conv, region_num=0, vote_field_size=0, model_v1=False):
     num_layers = int(arch[arch.find('_') + 1:]) if '_' in arch else 0
 

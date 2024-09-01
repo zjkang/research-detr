@@ -41,7 +41,7 @@ class BasicBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.downsample = downsample
+        self.downsample = downsample 
         self.stride = stride
 
     def forward(self, x):
@@ -105,6 +105,7 @@ class Bottleneck(nn.Module):
 
 
 def fill_fc_weights(layers):
+    # layers.modules() 返回该模块中的所有子模块（如卷积层、全连接层、激活函数等）
     for m in layers.modules():
         if isinstance(m, nn.Conv2d):
             nn.init.normal_(m.weight, std=0.001)
@@ -113,7 +114,16 @@ def fill_fc_weights(layers):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-
+# opt.arch, opt.heads, opt.head_conv, opt.region_num, opt.vote_field_siz
+# e.g.,
+# arch: res_101
+# num_layers=101, arch=res, get_model=get_houghnet_net
+# heads={hm: # of class * # of region = 80 * 17,
+#        wh: 2 * 80,
+#        reg: 2 (center),
+#        voting_head: {hm},},
+# head_conv=64 for resnet,
+# region_num=17,vote_field_size=65
 class HoughNetResNet(nn.Module):
 
     def __init__(self, block, layers, heads, region_num, vote_field_size, model_v1, head_conv, **kwargs):
@@ -122,7 +132,6 @@ class HoughNetResNet(nn.Module):
         self.heads = heads
         self.region_num = region_num
         self.vote_field_size = vote_field_size
-
 
         super(HoughNetResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
@@ -136,6 +145,8 @@ class HoughNetResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
 
         # used for deconv layers
+        # 特征图上采样并恢复到较高的分辨率
+        # 也就是从512 channels to 256 -> 126 -> 64
         self.deconv_layers = self._make_deconv_layer2(
             3,
             [256, 128, 64],
@@ -160,15 +171,18 @@ class HoughNetResNet(nn.Module):
             for voting_head in self.voting_heads:
                 if re.fullmatch(head, voting_head):
                     voting = True
+            # 检查这个头是否需要使用 Hough Voting 机制。如果需要，则初始化 Hough 类实例，
+            # 这可能是用于某种基于Hough投票的空间变换操作（如关键点检测或对象中心点预测）
             if voting:
                 out_classes = int(num_output / self.region_num)
                 hough_voting = Hough(region_num=self.region_num,
                                      vote_field_size=self.vote_field_size,
                                      num_classes=out_classes,
                                      model_v1=model_v1)
+                # e.g., self.voting_hm = hough_voting
                 self.__setattr__('voting_' + head, hough_voting)
                 voting = False
-
+          # 没有voting map也就是没有使用houghNet的情况
           else:
             fc = nn.Conv2d(
               in_channels=64,
@@ -177,6 +191,7 @@ class HoughNetResNet(nn.Module):
               stride=1,
               padding=0
           )
+          # self.hm = fc H*W*num_output=H*W*R*C
           self.__setattr__(head, fc)
 
     def _make_layer(self, block, planes, blocks, stride=1):
@@ -288,7 +303,12 @@ class HoughNetResNet(nn.Module):
         for head in self.heads:
 
             if head in self.voting_heads:
+                # access self.hm if head = 'hm'
+                # self.__getattr__(head)(x) 用于动态调用模型中不同的输出头（head）对应的层，
+                # 并将输入 x 传递给这些层，生成对应的输出
+                # h*w*r*c
                 voting_map_hm = self.__getattr__(head)(x)
+                # self.voting_hm(voting_map_hm) h*w*c
                 ret[head] = self.__getattr__('voting_' + head)(voting_map_hm)
             else:
                 ret[head] = self.__getattr__(head)(x)
@@ -342,7 +362,16 @@ resnet_spec = {18: (BasicBlock, [2, 2, 2, 2]),
                101: (Bottleneck, [3, 4, 23, 3]),
                152: (Bottleneck, [3, 8, 36, 3])}
 
-
+# opt.arch, opt.heads, opt.head_conv, opt.region_num, opt.vote_field_siz
+# e.g.,
+# arch: res_101
+# num_layers=101, arch=res, get_model=get_houghnet_net
+# heads={hm: # of class * # of region = 80 * 17,
+#        wh: 2 * 80,
+#        voting_head: {hm},
+#        reg: 2 (center)},
+# head_conv=64 for resnet,
+# region_num=17,vote_field_size=65
 def get_houghnet_net(num_layers, heads, head_conv, region_num, model_v1, vote_field_size):
   block_class, layers = resnet_spec[num_layers]
 

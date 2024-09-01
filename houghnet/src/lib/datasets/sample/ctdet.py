@@ -15,6 +15,7 @@ from src.lib.utils.image import draw_dense_reg
 import math
 
 class CTDetDataset(data.Dataset):
+  # 将 COCO 格式的边界框 [x, y, w, h] 转换为 [x1, y1, x2, y2] 格式
   def _coco_box_to_bbox(self, box):
     bbox = np.array([box[0], box[1], box[0] + box[2], box[1] + box[3]],
                     dtype=np.float32)
@@ -26,6 +27,7 @@ class CTDetDataset(data.Dataset):
         i *= 2
     return border // i
 
+  # 从数据集中获取一个样本的详细信息
   def __getitem__(self, index):
     img_id = self.images[index]
     file_name = self.coco.loadImgs(ids=[img_id])[0]['file_name']
@@ -45,7 +47,7 @@ class CTDetDataset(data.Dataset):
     else:
       s = max(img.shape[0], img.shape[1]) * 1.0
       input_h, input_w = self.opt.input_h, self.opt.input_w
-    
+
     flipped = False
     if self.split == 'train':
       if not self.opt.not_rand_crop:
@@ -60,16 +62,16 @@ class CTDetDataset(data.Dataset):
         c[0] += s * np.clip(np.random.randn()*cf, -2*cf, 2*cf)
         c[1] += s * np.clip(np.random.randn()*cf, -2*cf, 2*cf)
         s = s * np.clip(np.random.randn()*sf + 1, 1 - sf, 1 + sf)
-      
+
       if np.random.random() < self.opt.flip:
         flipped = True
         img = img[:, ::-1, :]
         c[0] =  width - c[0] - 1
-        
+
 
     trans_input = get_affine_transform(
       c, s, 0, [input_w, input_h])
-    inp = cv2.warpAffine(img, trans_input, 
+    inp = cv2.warpAffine(img, trans_input,
                          (input_w, input_h),
                          flags=cv2.INTER_LINEAR)
     inp = (inp.astype(np.float32) / 255.)
@@ -91,7 +93,7 @@ class CTDetDataset(data.Dataset):
     reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
     cat_spec_wh = np.zeros((self.max_objs, num_classes * 2), dtype=np.float32)
     cat_spec_mask = np.zeros((self.max_objs, num_classes * 2), dtype=np.uint8)
-    
+
     draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
                     draw_umich_gaussian
 
@@ -104,6 +106,7 @@ class CTDetDataset(data.Dataset):
         bbox[[0, 2]] = width - bbox[[2, 0]] - 1
       bbox[:2] = affine_transform(bbox[:2], trans_output)
       bbox[2:] = affine_transform(bbox[2:], trans_output)
+      # 将变换后的边界框裁剪到图像边界内，确保其不会超出图像的有效区域
       bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0, output_w - 1)
       bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, output_h - 1)
       h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
@@ -111,21 +114,30 @@ class CTDetDataset(data.Dataset):
         radius = gaussian_radius((math.ceil(h), math.ceil(w)))
         radius = max(0, int(radius))
         radius = self.opt.hm_gauss if self.opt.mse_loss else radius
+        # ct 是目标的中心点坐标
         ct = np.array(
           [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
         ct_int = ct.astype(np.int32)
+        # draw_gaussian 函数在目标类别的热图中绘制高斯分布
         draw_gaussian(hm[cls_id], ct_int, radius)
+        # 存储目标的宽度和高度
         wh[k] = 1. * w, 1. * h
+        # 存储目标中心点在输出热图中的索引
         ind[k] = ct_int[1] * output_w + ct_int[0]
+        # 存储目标中心点的回归偏差
         reg[k] = ct - ct_int
+        # 用于标记有效的回归目标
         reg_mask[k] = 1
         cat_spec_wh[k, cls_id * 2: cls_id * 2 + 2] = wh[k]
         cat_spec_mask[k, cls_id * 2: cls_id * 2 + 2] = 1
         if self.opt.dense_wh:
           draw_dense_reg(dense_wh, hm.max(axis=0), ct_int, wh[k], radius)
-        gt_det.append([ct[0] - w / 2, ct[1] - h / 2, 
+        # 保存目标检测的地面真值
+        gt_det.append([ct[0] - w / 2, ct[1] - h / 2,
                        ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
-    
+
+    # 返回的处理后的图像结果
+    # ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh}
     ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh}
     if self.opt.dense_wh:
       hm_a = hm.max(axis=0, keepdims=True)
