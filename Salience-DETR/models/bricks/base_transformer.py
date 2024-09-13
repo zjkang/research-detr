@@ -8,12 +8,14 @@ class DETRBaseTransformer(nn.Module):
     such as DeformableTransformer, DabTransformer, DINOTransformer, AlignTransformer.
 
     """
+
     def __init__(self, num_feature_levels, embed_dim):
         super().__init__()
         self.embed_dim = embed_dim
         # 特征层数。这些特征层分别对应于不同的空间分辨率和感受野，能够捕捉图像中的不同层次的信息
         self.num_feature_levels = num_feature_levels
-        self.level_embeds = nn.Parameter(torch.Tensor(num_feature_levels, embed_dim))
+        self.level_embeds = nn.Parameter(
+            torch.Tensor(num_feature_levels, embed_dim))
         self._init_weights_detr_transformer()
 
     def _init_weights_detr_transformer(self):
@@ -21,7 +23,8 @@ class DETRBaseTransformer(nn.Module):
 
     @staticmethod
     def flatten_multi_level(multi_level_elements):
-        multi_level_elements = torch.cat([e.flatten(-2) for e in multi_level_elements], -1)  # (b, [c], s)
+        multi_level_elements = torch.cat(
+            [e.flatten(-2) for e in multi_level_elements], -1)  # (b, [c], s)
         if multi_level_elements.ndim == 3:
             multi_level_elements.transpose_(1, 2)
         return multi_level_elements
@@ -38,13 +41,18 @@ class DETRBaseTransformer(nn.Module):
             # torch.Tensor.shape exports not well for ONNX
             # use operators.shape_as_tensor istead
             from torch.onnx import operators
-            spatial_shapes = [operators.shape_as_tensor(m)[-2:] for m in multi_level_masks]
-            spatial_shapes = torch.stack(spatial_shapes).to(multi_level_masks[0].device)
+            spatial_shapes = [operators.shape_as_tensor(
+                m)[-2:] for m in multi_level_masks]
+            spatial_shapes = torch.stack(spatial_shapes).to(
+                multi_level_masks[0].device)
         else:
             spatial_shapes = [m.shape[-2:] for m in multi_level_masks]
-            spatial_shapes = torch.as_tensor(spatial_shapes, device=multi_level_masks[0].device)
-        level_start_index = torch.cat((spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
-        valid_ratios = torch.stack([self.get_valid_ratios(m) for m in multi_level_masks], 1)
+            spatial_shapes = torch.as_tensor(
+                spatial_shapes, device=multi_level_masks[0].device)
+        level_start_index = torch.cat(
+            (spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
+        valid_ratios = torch.stack([self.get_valid_ratios(m)
+                                    for m in multi_level_masks], 1)
         return spatial_shapes, level_start_index, valid_ratios
 
     @staticmethod
@@ -63,6 +71,7 @@ class TwostageTransformer(DETRBaseTransformer):
     such as DeformableTransformer, DabTransformer, DINOTransformer, AlignTransformer.
 
     """
+
     def __init__(self, num_feature_levels, embed_dim):
         super().__init__(num_feature_levels, embed_dim)
         self.enc_output = nn.Linear(embed_dim, embed_dim)
@@ -74,6 +83,7 @@ class TwostageTransformer(DETRBaseTransformer):
         nn.init.constant_(self.enc_output.bias, 0.0)
 
     def gen_encoder_output_proposals(self, memory, memory_padding_mask, spatial_shapes):
+        # n: batch size; s: seq length (tokens); c: channels
         n, s, c = memory.shape
         proposals = []
         cur = 0
@@ -86,29 +96,44 @@ class TwostageTransformer(DETRBaseTransformer):
             spatial_shapes = spatial_shapes.tolist()
 
         for lvl, (h, w) in enumerate(spatial_shapes):
-            mask_flatten = memory_padding_mask[:, cur:(cur + h * w)].view(n, h, w, 1)
+            mask_flatten = memory_padding_mask[:, cur:(
+                cur + h * w)].view(n, h, w, 1)
+            # 每个样本在高度和宽度方向上的有效像素数
             valid_h = torch.sum(~mask_flatten[:, :, 0, 0], 1)
             valid_w = torch.sum(~mask_flatten[:, 0, :, 0], 1)
 
             grid_y, grid_x = torch.meshgrid(
-                torch.linspace(0, h - 1, h, dtype=torch.float32, device=memory.device),
-                torch.linspace(0, w - 1, w, dtype=torch.float32, device=memory.device),
+                torch.linspace(0, h - 1, h, dtype=torch.float32,
+                               device=memory.device),
+                torch.linspace(0, w - 1, w, dtype=torch.float32,
+                               device=memory.device),
                 indexing="ij",
             )
             grid = torch.stack([grid_x, grid_y], -1)  # [h, w, 2]
             scale = torch.stack([valid_w, valid_h], -1).view(n, 1, 1, 2)
             grid = (grid.expand(n, -1, -1, -1) + 0.5) / scale  # [n, h, w, 2]
+            # 为每个网格点创建初始的宽度和高度，随层级增加而增大
             wh = torch.ones_like(grid) * 0.05 * 2.0**lvl
+            # 将网格坐标和宽高信息拼接，形成 [中心x, 中心y, 宽, 高] 格式的提议
+            # proposal.shape = (n, h*w, 4)
             proposal = torch.cat([grid, wh], -1).view(n, -1, 4)
             proposals.append(proposal)
             cur += h * w
+        # output_proposals.shape = (n, sum(hiwi), 4) sum(hiwi) 是所有特征层级的 hiwi 之和
+        # 4 表示每个提议的四个值：[中心x, 中心y, 宽, 高]
         output_proposals = torch.cat(proposals, 1)
-        output_proposals_valid = ((output_proposals > 0.01) & (output_proposals < 0.99)).all(-1, keepdim=True)
-        output_proposals = torch.log(output_proposals / (1 - output_proposals))  # inverse_sigmoid
+        # keepdim=True 保持维度，结果 shape 为 (n, sum(hiwi), 1)
+        output_proposals_valid = ((output_proposals > 0.01) & (
+            output_proposals < 0.99)).all(-1, keepdim=True)
+        output_proposals = torch.log(
+            output_proposals / (1 - output_proposals))  # inverse_sigmoid
+        # 将无效提议（包括 padding 区域和值不合理的提议）标记为无穷大，以便后续处理时可以忽略这些提议
         output_proposals.masked_fill_(
-            memory_padding_mask.unsqueeze(-1) | ~output_proposals_valid, float("inf")
+            memory_padding_mask.unsqueeze(
+                -1) | ~output_proposals_valid, float("inf")
         )
 
-        output_memory = memory * (~memory_padding_mask.unsqueeze(-1)) * (output_proposals_valid)
+        output_memory = memory * \
+            (~memory_padding_mask.unsqueeze(-1)) * (output_proposals_valid)
         output_memory = self.enc_output_norm(self.enc_output(output_memory))
         return output_memory, output_proposals

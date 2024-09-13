@@ -46,6 +46,7 @@ class SalienceCriterion(nn.Module):
         mask_targets = []
         for level_idx, (mask, feature_stride) in enumerate(zip(foreground_mask, feature_strides)):
             feature_shape = mask.shape[-2:]
+            # 生成特征图上每个像素的坐标 -> feature map coord -> image coord
             coord_x, coord_y = self.get_pixel_coordinate(feature_shape, feature_stride, device=mask.device)
             masks_per_level = []
             for gt_boxes in gt_boxes_list:
@@ -194,23 +195,36 @@ class SalienceDETR(DNDETRDetector):
         self.focus_criterion = focus_criterion
 
     def forward(self, images: List[Tensor], targets: List[Dict] = None):
-        # images: 输入图像张量列表, images come with batch (b,h,w)
-        # 目标检测的真实标签（包含边界框和类别信息）
+        # images: 输入图像张量列表, images = list[(c,h,w)], len(images) = b
+        # targets: len(targets) = b, 目标检测的真实标签（包含边界框和类别信息）
+        # target = {boxes: (num_object, 4), labels: (num_object, ), image_id:, area:, iscrowd:}
         # get original image sizes, used for postprocess
+        # original_image_sizes.shape = (b,2): 2 is height and width of the image
         original_image_sizes = self.query_original_sizes(images)
         # 标记实际图像内容的区域为 0，即 mask[img_id, :image_size[0], :image_size[1]] = 0，
         # 表示该区域是有效的图像部分，而填充的区域仍然保持为 1，表示无效的填充区域
+        # images.shape
+        # images.tensors: Tensor of shape (B, C, H, W)
+        # images.image_sizes: List[Tuple[int, int]] of length B
+        # targets:    List[Dict], len(targets) = B
+        # mask: Tensor of shape (B, H, W)
         images, targets, mask = self.preprocess(images, targets)
 
         # extract features
+        # multi_level_feats = [(B, C_i, H_i, W_i)]
         multi_level_feats = self.backbone(images.tensors)
+        # neck: additional network component (often FPN - Feature Pyramid Network) that further processes the features from the backbon
         multi_level_feats = self.neck(multi_level_feats)
 
         multi_level_masks = []
         multi_level_position_embeddings = []
         for feature in multi_level_feats:
-            # mask[None]：先在维度0增加一个新的维度，这样 mask 就变成了 1 x H x W 的形式，以便与插值操作匹配
+            # mask[None] adds a new dimension at the front, resulting in 1 x B x H x W
+            # F.interpolate resizes this to 1 x B x H' x W' where H' and W' match the feature map size
+            # [0] at the end removes the leading dimension, resulting in B x H' x W'
+            # multi_level_masks = [B x H' x W']
             multi_level_masks.append(F.interpolate(mask[None], size=feature.shape[-2:]).to(torch.bool)[0])
+            # multi_level_position_embeddings = [B x H' x W' x C]
             multi_level_position_embeddings.append(self.position_embedding(multi_level_masks[-1]))
 
         if self.training:
@@ -251,7 +265,7 @@ class SalienceDETR(DNDETRDetector):
             }
             outputs_class, outputs_coord = self.dn_post_process(outputs_class, outputs_coord, dn_metas)
 
-            # prepare for loss computation
+        # prepare for loss computation
         output = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
         if self.aux_loss:
             output["aux_outputs"] = self._set_aux_loss(outputs_class, outputs_coord)
@@ -261,7 +275,15 @@ class SalienceDETR(DNDETRDetector):
 
         if self.training:
             # compute loss
+            # 主要损失（Main Losses）
+            # 这里的 self.criterion 通常包含多个子损失，例如：
+            # 分类损失（Classification Loss）
+            # 边界框回归损失（Bounding Box Regression Loss）
+            # 可能还有其他如 GIoU 损失等
             loss_dict = self.criterion(output, targets)
+            # 去噪损失（Denoising Losses）
+            # 去噪分类损失
+            # 去噪边界框回归损失
             dn_losses = self.compute_dn_loss(dn_metas, targets)
             loss_dict.update(dn_losses)
 
