@@ -53,14 +53,16 @@ class SalienceCriterion(nn.Module):
                 # 掩码表示特征图上的哪些位置与目标边界框匹配（通常取值为0到1之间的浮点数，表示显著性概率）
                 mask = self.get_mask_single_level(coord_x, coord_y, gt_boxes, level_idx)
                 masks_per_level.append(mask)
-            # torch.stack 将多个掩码张量沿着一个新维度堆叠起来，形成形状为 [num_gt_boxes, H, W] 的张量
+            # torch.stack 将多个掩码张量沿着一个新维度堆叠起来，形成形状为 (batch_size, h*w) 的张量
             masks_per_level = torch.stack(masks_per_level)
             mask_targets.append(masks_per_level)
         # 拼接所有特征层级的掩码目标
         # torch.cat(mask_targets, dim=1) 的作用是沿着维度 1 将 mask_targets 中的所有张量进行拼接
+        # (batch_size, sum(HiWi))
         mask_targets = torch.cat(mask_targets, dim=1)
         # 将所有层级的前景掩码展平并拼接在一起
         foreground_mask = torch.cat([e.flatten(-2) for e in foreground_mask], -1)
+        # (batch_size, sum(HiWi))
         foreground_mask = foreground_mask.squeeze(1)
         num_pos = torch.sum(mask_targets > 0.5 * self.noise_scale).clamp_(min=1)
 
@@ -90,6 +92,9 @@ class SalienceCriterion(nn.Module):
     def get_mask_single_level(self, coord_x, coord_y, gt_boxes, level_idx):
         # gt_label: (m,) gt_boxes: (m, 4)
         # coord_x: (h*w, )
+        # left_border_distance: shape of (HW, num_gt_boxes)
+        # each element represents the distance between a specific coordinate and 
+        # a specific box's left border
         left_border_distance = coord_x[:, None] - gt_boxes[None, :, 0]  # (h*w, m)
         top_border_distance = coord_y[:, None] - gt_boxes[None, :, 1]
         right_border_distance = gt_boxes[None, :, 2] - coord_x[:, None]
@@ -110,6 +115,10 @@ class SalienceCriterion(nn.Module):
         mask_in_gt_boxes = min_border_distances > 0
         min_limit, max_limit = self.limit_range[level_idx]
         # mask_in_level 用来筛选那些距离在当前特征层有效范围内的像
+        # 专注于适当尺度的目标：
+        # 较低层级的特征图（分辨率高）适合检测小目标。
+        # 较高层级的特征图（分辨率低）适合检测大目标。
+        # 最大距离限制确保每个层级只关注适合其尺度的目标
         mask_in_level = (max_border_distances > min_limit) & (max_border_distances <= max_limit)
         # mask_pos 通过 mask_in_gt_boxes 和 mask_in_level 两个掩码相与，
         # 筛选出同时满足位于边界框内且符合层级距离要求的像素
@@ -129,17 +138,19 @@ class SalienceCriterion(nn.Module):
         confidence_per_box[~mask_in_gt_boxes] = 0
 
         # process positive coordinates
+        # 检查 confidence_per_box 张量是否为空（即是否包含元素）
         if confidence_per_box.numel() != 0:
             mask = confidence_per_box.max(-1)[0]
         else:
             mask = torch.zeros(coord_y.shape, device=confidence.device, dtype=confidence.dtype)
 
         # process negative coordinates
-        # 对于不满足 mask_pos 条件的像素，将它们的掩码值设为 0
+        # 对于不满足 mask_pos 条件的像素，将它们的掩码值设为 0, 即那些不被认为是目标对象一部分的像素
         mask_pos = mask_pos.long().sum(dim=-1) >= 1
         mask[~mask_pos] = 0
 
         # add noise to add randomness
+        # mask.shape = (HW,)
         mask = (1 - self.noise_scale) * mask + self.noise_scale * torch.rand_like(mask)
         return mask
 

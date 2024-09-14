@@ -17,7 +17,8 @@ from .base_trainer import BaseTrainer
 class CtdetLoss(torch.nn.Module):
   def __init__(self, opt):
     super(CtdetLoss, self).__init__()
-    # 主损失函数，用于计算热图的损失。如果 opt.mse_loss 为 True，使用均方误差（MSE）损失，否则使用自定义的 FocalLoss
+    # 主损失函数，用于计算热图的损失。如果 opt.mse_loss 为 True，
+    # 使用均方误差（MSE）损失，否则使用自定义的 FocalLoss
     self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
     # 用于计算边界框回归损失
     self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else \
@@ -35,7 +36,7 @@ class CtdetLoss(torch.nn.Module):
     opt = self.opt
     # hm_loss（热图损失）、wh_loss（宽高损失）和 off_loss（偏移量损失）
     hm_loss, wh_loss, off_loss = 0, 0, 0
-    # restnet uses only 1 stack
+    # resnet uses only 1 stack
     for s in range(opt.num_stacks):
       # 注意outputs是多尺度？
       output = outputs[s]

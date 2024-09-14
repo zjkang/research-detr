@@ -24,15 +24,25 @@ class Hough(nn.Module):
 
 
     def  _prepare_deconv_filters(self):
+#         那么，为什么改变 voting_map_size 会影响结果？
+# 主要原因在于输入数据的变化和整个处理流程：
+# a. 输入数据的变化：
+# 更大的 voting_map_size 意味着输入到 Hough 模块的特征图更大。
+# 这会影响 calculate_logmap 函数的输出，进而影响后续的权重计算。
+# b. 权重计算的变化：
+# 更大的 voting_map_size 会改变 logmap_onehot 的大小和内容。
+# 这导致归一化过程产生不同的 weights
+# 虽然提取的区域大小（由 vote_field_size 决定）不变，但提取的内容会因为 weights 的变化而不同
 
         half_w = int(self.voting_map_size_w / 2)
         half_h = int(self.voting_map_size_h / 2)
 
         vote_center = torch.tensor([half_h, half_w]).cuda()
 
-        # vote_field (H,W,R) with one-hot
+        # vote_field (H,W,R) with one-hot: (128, 128, 9)
         logmap_onehot = self.calculate_logmap((self.voting_map_size_h, self.voting_map_size_w), vote_center)
-        # normalize on (H,W) -> (H,W,R)
+        # normalize on (H,W) -> (H,W,R): (128, 128, 9)
+        # 每个位置的 9 维向量现在被归一化，使得在整个图像上，每个区域的权重总和为 1
         weights = logmap_onehot / \
                         torch.clamp(torch.sum(torch.sum(logmap_onehot, dim=0), dim=0).float(), min=1.0)
 
@@ -51,11 +61,12 @@ class Hough(nn.Module):
 
         # (vote_field_size,vote_field_size,R)
         # -> (R,vote_field_size,vote_field_size)
-        # -> (region_num, 1, vote_field_size, vote_field_size)
+        # -> (region_num, 1, vote_field_size, vote_field_size): (9, 1, 17, 17)
+        # 每个区域（总共 region_num 个）都有一个独立的滤波器
         deconv_filters = weights[start_x:stop_x, start_y:stop_y,:].permute(2,0,1).view(self.region_num, 1,
-
-                                                                     self.vote_field_size, self.vote_field_size)
+            self.vote_field_size, self.vote_field_size)
         # W shape: (self.num_classes * region_num, 1, vote_field_size, vote_field_size)
+        # (9 * self.num_classes, 1, 17, 17) = (720, 1, 17, 17)
         W = nn.Parameter(deconv_filters.repeat(self.num_classes, 1, 1, 1))
         W.requires_grad = False
 
@@ -74,10 +85,15 @@ class Hough(nn.Module):
 
         with torch.no_grad():
             # deconv_kernel.weight shape the same is W
+            # 结果格式符合 PyTorch 卷积层的权重格式：(out_channels, in_channels, height, width)
             deconv_kernel.weight = W
 
         layers.append(deconv_kernel)
 
+        # output_size = (input_size - 1) * stride - 2 * padding + kernel_size + output_padding
+        # output_size = (128 - 1) * 1 - 2 * 8 + 17 + 0
+        #     = 127 - 16 + 17
+        #     = 128
         return nn.Sequential(*layers)
 
     def generate_grid(self, h, w):
@@ -115,12 +131,16 @@ class Hough(nn.Module):
         results = angle_id + (c_region - 1) * total_angles
         results[results < 0] = 0
 
+        # shape: (H,W), results[H][W] = id
         results.view(im_size[0], im_size[1])
 
         logmap = results.view(im_size[0], im_size[1])
         logmap_onehot = torch.nn.functional.one_hot(logmap.long(), num_classes=17).float()
         logmap_onehot = logmap_onehot[:, :, :self.region_num]
 
+        # (H, W, self.region_num), 预定义的区域数量
+        # 对于图像中的每个像素 (i, j)，logmap_onehot[i, j, :] 是一个 one-hot 向量
+        #  one-hot 向量表示该像素属于哪个对数极坐标区域
         return logmap_onehot
 
     # voting_map: h*w*r*c
@@ -132,6 +152,8 @@ class Hough(nn.Module):
             voting_map = voting_map.permute(0, 2, 1, 3, 4)
             voting_map = voting_map.reshape(batch_size, -1, width, height)
 
+         # voting_map: h*w*r*c
+        # heatmap: h*w*c
         heatmap = self.deconv_filters(voting_map)
 
         return heatmap

@@ -2,6 +2,8 @@ from torch.nn import functional as F
 
 
 def sigmoid_focal_loss(inputs, targets, num_boxes, alpha: float = 0.25, gamma: float = 2):
+    # inputs: foreground_mask score
+    # targets: ground-truth
     prob = inputs.sigmoid()
     target_score = targets.to(inputs.dtype)
     weight = (1 - alpha) * prob**gamma * (1 - targets) + targets * alpha * (1 - prob)**gamma

@@ -147,6 +147,13 @@ class HoughNetResNet(nn.Module):
         # used for deconv layers
         # 特征图上采样并恢复到较高的分辨率
         # 也就是从512 channels to 256 -> 126 -> 64
+        # 关键点：
+        # 1. 每次循环中的 fc (3x3 卷积) 保持空间维度不变。
+        # 2. 每次循环中的 up (转置卷积) 将空间维度增加一倍。
+        # 3. 总共进行了 3 次上采样，每次将尺寸翻倍。
+        # 这种设计允许网络逐步增加特征图的空间分辨率，同时逐步减少通道数（从 256 到 64）。
+        # 这是目标检测和语义分割等任务中常见的上采样策略，旨在恢复高分辨率的特征图，
+        # 以便进行精确的空间预测
         self.deconv_layers = self._make_deconv_layer2(
             3,
             [256, 128, 64],
@@ -154,6 +161,10 @@ class HoughNetResNet(nn.Module):
         )
         # self.final_layer = []
 
+        # 这段代码的主要目的是：
+        # 为每个头部创建适当的卷积层。
+        # 对于需要 Hough 投票的头部，额外创建一个 Hough 投票实例。
+        # 动态地为模型添加这些组件作为属性
         self.voting_heads = list(heads['voting_heads'])
         del heads['voting_heads']
         voting = False
@@ -307,8 +318,16 @@ class HoughNetResNet(nn.Module):
                 # self.__getattr__(head)(x) 用于动态调用模型中不同的输出头（head）对应的层，
                 # 并将输入 x 传递给这些层，生成对应的输出
                 # h*w*r*c
+                # (B, region_num num_classes, 128, 128)
+                #  if region_num = 9 and num_classes = 80, the shape would be:
+                # (B, 720, 128, 128)
                 voting_map_hm = self.__getattr__(head)(x)
                 # self.voting_hm(voting_map_hm) h*w*c
+                # (B, num_classes, 128, 128)
+                # The Hough voting process essentially aggregates the votes from different 
+                # regions for each class, reducing the channel dimension from 
+                # region_num * num_classes to just num_classes, 
+                # while maintaining the spatial dimensions (128x128 in this case)
                 ret[head] = self.__getattr__('voting_' + head)(voting_map_hm)
             else:
                 ret[head] = self.__getattr__(head)(x)
