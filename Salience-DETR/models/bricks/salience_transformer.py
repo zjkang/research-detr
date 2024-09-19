@@ -101,8 +101,11 @@ class SalienceTransformer(TwostageTransformer):
         self.tgt_embed = nn.Embedding(two_stage_num_proposals, self.embed_dim)
         self.encoder_class_head = nn.Linear(self.embed_dim, num_classes)
         self.encoder_bbox_head = MLP(self.embed_dim, self.embed_dim, 4, 3)
+        # enhance_mcsp 中的 "mcsp" 很可能是 "Multi-Class Score Prediction",
+        # 一个用于增强或改进某种多类别分数预测的函数或模块
+        # enhance_mcsp 和 encoder_class_head 使用完全相同的参数
         self.encoder.enhance_mcsp = self.encoder_class_head
-        #  its function in predicting masks or salience scores 
+        #  its function in predicting masks or salience scores
         self.enc_mask_predictor = MaskPredictor(self.embed_dim, self.embed_dim)
 
         self.init_weights()
@@ -318,10 +321,21 @@ class SalienceTransformer(TwostageTransformer):
         #    Transformer decoder 可以细化这些初始估计
         # output_proposals.shape = (n, sum(hiwi), 4)
         # output_memory.shape = (n, sum(hiwi), c)
+        # output_proposals 确实代表了初始的坐标预测，但这些预测通常是基于一些简单的启发式方法或固定的先验生成的
+        #                  它们可能不够精确，只是提供了一个粗略的初始估计
         output_memory, output_proposals = self.gen_encoder_output_proposals(
             memory, mask_flatten, spatial_shapes
         )
         # enc_outputs_class.shape = (n, sum(hiwi), num_classes)
+        # encoder_bbox_head
+        # 这个模块的作用是预测对初始提议（proposals）的调整或细化。
+        # 它不是直接预测最终的坐标，而是预测需要应用到初始提议上的偏移量或修正
+        # 这个操作实际上是在执行一个残差学习（residual learning）过程
+        # 更容易学习：相比于直接预测绝对坐标，学习相对的调整通常更容易。
+        # 保留先验信息：初始提议中包含的先验知识（如可能的目标位置和大小）被保留和利用。
+        # 稳定训练：这种残差学习方法通常能提供更稳定的梯度，有助于模型的训练
+        # 将最终的坐标值压缩到 [0, 1] 范围内。
+        # 这确保了预测的坐标始终在有效的图像范围内
         enc_outputs_class = self.encoder_class_head(output_memory)
         enc_outputs_coord = self.encoder_bbox_head(
             output_memory) + output_proposals
@@ -382,6 +396,8 @@ class SalienceTransformer(TwostageTransformer):
                 [noised_box_query.sigmoid(), reference_points], 1)
 
         # decoder
+        # intput query for content repr: target
+        # input query for position: reference_points
         outputs_classes, outputs_coords = self.decoder(
             query=target,
             value=memory,
@@ -791,6 +807,7 @@ class SalienceTransformerEncoder(nn.Module):
             background_embedding = torch.cat(background_embedding, dim=1)
             background_embedding.scatter_(1, inds_for_query, 0)
             background_embedding *= (~query_key_padding_mask).unsqueeze(-1)
+            # the output will be foreground (salienece) embedding + background_embedding
             output = output + background_embedding
 
         return output

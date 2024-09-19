@@ -1,0 +1,14 @@
+
+configs:
+    hough_detr/hough_detr_resnet50_800_1333
+models:
+    detector/hough_detr
+bricks:
+    hough_transformer
+    hough
+
+Consider the below implementations:
+bricks:
+    losses
+
+
