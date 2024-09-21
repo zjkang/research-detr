@@ -75,6 +75,8 @@ class Hough(nn.Module):
         # 分组卷积可以减少计算复杂度，并且在深度学习中被用于构建更高效的模型，例如在 ResNeXt 和 MobileNet 中广泛使用
         # 每一个组就是每一个类 独立卷积计算
         # 得到每一个类的特征图
+        # !!!做卷机计算的时候，每个点可以看作是被预测的中心点，它的投票结果是周边点带有权重方式的投票通过卷积操作
+        # 来实现的
         deconv_kernel = nn.ConvTranspose2d(
             in_channels=self.region_num*self.num_classes,
             out_channels=1*self.num_classes,

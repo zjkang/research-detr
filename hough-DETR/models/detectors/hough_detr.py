@@ -25,7 +25,7 @@ class SalienceCriterion(nn.Module):
         self.gamma = gamma
 
     def forward(self, foreground_mask, targets, feature_strides, image_sizes):
-        # foreground_mask: [(batch_size, num_classes, H_i, W_i)]
+        # foreground_mask: [(batch_size, 1, H_i, W_i)]
         # gt_boxes_list: [boxes] len() = batch, boxes: the boxes in one image
         gt_boxes_list = []
         for t, (img_h, img_w) in zip(targets, image_sizes):
@@ -49,8 +49,10 @@ class SalienceCriterion(nn.Module):
             mask_targets.append(masks_per_level)
         # mask_targets: (batch_size, sum(h_i*w_i))
         mask_targets = torch.cat(mask_targets, dim=1)
-
+        # foreground_mask init: [(batch_size, 1, H_i, W_i)]
+        # then (batch_size, 1, H_i * W_i)
         foreground_mask = torch.cat([e.flatten(-2) for e in foreground_mask], -1)
+        # foreground_mask: (batch_size, sum(H_i * W_i))
         foreground_mask = foreground_mask.squeeze(1)
         num_pos = torch.sum(mask_targets > 0.5 * self.noise_scale).clamp_(min=1)
         salience_loss = (

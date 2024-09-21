@@ -9,6 +9,11 @@ from models.bricks.denoising import GenerateCDNQueries
 from models.bricks.losses import sigmoid_focal_loss
 from models.detectors.base_detector import DNDETRDetector
 
+# Salience-DETR 学习了2个事情
+# 1.每个token是前景的分数 由距离中心点的距离supervised
+# 2.根据分数挑选前景后 计算每个token分类的概率
+
+
 
 class SalienceCriterion(nn.Module):
     def __init__(
