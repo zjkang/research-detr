@@ -137,7 +137,7 @@ class SalienceCriterion(nn.Module):
         mask = (1 - self.noise_scale) * mask + self.noise_scale * torch.rand_like(mask)
         return mask # confidence score & 0
 
-
+# loss function optimization
 class HoughCriterion(nn.Module):
     def __init__(
         self,

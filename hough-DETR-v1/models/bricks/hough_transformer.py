@@ -57,7 +57,7 @@ class HeatmapPredictor(nn.Module):
             num_classes,
             embed_dim,
             region_num,
-            vote_field_size,
+            vote_field_size=17,
             head_conv=64):
         super().__init__()
         self.inplanes = embed_dim # default=64
