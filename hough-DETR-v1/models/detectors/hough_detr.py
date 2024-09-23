@@ -142,7 +142,7 @@ class HoughCriterion(nn.Module):
     def __init__(
         self,
         limit_range: Tuple = ((-1, 64), (64, 128), (128, 256), (256, 99999)),
-        noise_scale: float = 0.0, 
+        noise_scale: float = 0.0,
         alpha: float = 0.25,
         gamma: float = 2.0,
     ):

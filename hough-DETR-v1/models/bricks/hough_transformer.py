@@ -146,8 +146,10 @@ class HeatmapPredictor(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
+    # x: (b, c=embed_dim, h, w)
     def forward(self, x):
-        # NOTE!!! does it nee to add this?
+        # x = (b, region_num * num_classes, h, w)
+        # NOTE!!! does it need to add this?
         x = self.deconv_layers(x)
         # x = (b, region_num * num_classes, h, w)
         x = self.voting_map_hm(x)
@@ -290,6 +292,38 @@ class HoughTransformer(TwostageTransformer):
         index = torch.sort(selected_score, dim=1, descending=True)[1]
         selected_inds = torch.cat(selected_inds[::-1], 1).gather(1, index)
 
+        ## my code
+        # Generate heatmaps for each level
+        heatmaps = []
+        for level_idx in range(spatial_shapes.shape[0] - 1, -1, -1):
+            start_index = level_start_index[level_idx]
+            end_index = level_start_index[level_idx + 1] if level_idx < spatial_shapes.shape[0] - 1 else None
+            level_memory = backbone_output_memory[:, start_index:end_index, :]
+
+            # Reshape level_memory to match spatial dimensions
+            # level_memory: (b, h, w, channels)
+            level_memory = level_memory.view(batch_size, *spatial_shapes[level_idx], -1)
+
+            # Upsample to the first level's resolution
+            if level_idx > 0:
+                level_memory = torch.nn.functional.interpolate(
+                    level_memory,
+                    size=spatial_shapes[0].unbind(),
+                    mode="bilinear",
+                    align_corners=True
+                )
+
+            # Generate hm voting
+            heat_map = self.enc_mask_voting_hm_predictor(level_memory)
+            heatmaps.append(heat_map)
+
+        # Combine heatmaps from all levels
+        # combined_voting_hm: (b, num_classes, h, w)
+        combined_voting_hm = torch.stack(heatmaps).sum(dim=0)
+        # Do I need normalization?
+        combined_voting_hm = combined_voting_hm / combined_voting_hm.max()
+        ## my code
+
         # create layer-wise filtering
         num_inds = selected_inds.shape[1]
         # change dtype to avoid shape inference error during exporting ONNX
@@ -365,7 +399,9 @@ class HoughTransformer(TwostageTransformer):
             attn_mask=attn_mask,
         )
 
-        return outputs_classes, outputs_coords, enc_outputs_class, enc_outputs_coord, salience_score
+        return outputs_classes, outputs_coords,\
+            enc_outputs_class, enc_outputs_coord,\
+            salience_score, norm_voting_hm
 
     @staticmethod
     def fast_repeat_interleave(input, repeats):

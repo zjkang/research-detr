@@ -12,3 +12,7 @@ bricks:
     losses
 
 
+
+loss function implementations
+    losses
+    
