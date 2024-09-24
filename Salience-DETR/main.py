@@ -198,4 +198,15 @@ def train():
 
 
 if __name__ == "__main__":
+    import debugpy
+    # 监听所有 IP 地址上的端口 5678
+    debugpy.listen(("0.0.0.0", 5678))
+    print("Waiting for debugger to attach...")
+
+    # 等待调试器连接
+    debugpy.wait_for_client()
+
+    # 连接后继续执行你的代码
+    print("Debugger attached. Continuing execution...")
+
     train()
